@@ -125,6 +125,73 @@ def preprocess(
 
 
 # ---------------------------------------------------------------------------
+# Análise de ocupação via OpenCV (pré-filtro antes do YOLO)
+# ---------------------------------------------------------------------------
+def analyze_roi_occupancy(
+    frame_bgr: np.ndarray,
+    roi_coords: list[list[int]],
+    canny_low: int = 50,
+    canny_high: int = 150,
+    blur_kernel: int = 5,
+) -> float:
+    """
+    Analisa a ocupação de uma ROI usando detecção de bordas (Canny).
+
+    Vagas ocupadas possuem alta densidade de bordas (contorno do carro,
+    rodas, espelhos, placa). Vagas livres (asfalto liso) possuem poucas
+    bordas.
+
+    Etapas:
+        1. Cria uma máscara poligonal da ROI.
+        2. Recorta a região de interesse do frame.
+        3. Converte para escala de cinza e aplica Gaussian Blur.
+        4. Aplica o detector de bordas Canny.
+        5. Calcula a densidade de bordas (pixels de borda / total de pixels da ROI).
+
+    Args:
+        frame_bgr: Frame original em BGR (resolução completa).
+        roi_coords: Lista de 4 pontos [[x,y], ...] do polígono da vaga.
+        canny_low: Limiar inferior do detector Canny.
+        canny_high: Limiar superior do detector Canny.
+        blur_kernel: Tamanho do kernel do Gaussian Blur (deve ser ímpar).
+
+    Returns:
+        Densidade de bordas entre 0.0 e 1.0.
+        Valores típicos:
+        - < 0.03: Vaga provavelmente livre (asfalto liso)
+        - > 0.05: Vaga provavelmente ocupada (contornos de veículo)
+    """
+    poly = np.array(roi_coords, dtype=np.int32)
+
+    # 1. Cria máscara da ROI
+    mask = np.zeros(frame_bgr.shape[:2], dtype=np.uint8)
+    cv2.fillPoly(mask, [poly], 255)
+
+    # 2. Recorta a região usando a máscara
+    roi_region = cv2.bitwise_and(frame_bgr, frame_bgr, mask=mask)
+
+    # 3. Converte para cinza e aplica blur para reduzir ruído
+    gray = cv2.cvtColor(roi_region, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
+
+    # 4. Detecção de bordas com Canny
+    edges = cv2.Canny(blurred, canny_low, canny_high)
+
+    # 5. Aplica a máscara para contar apenas pixels dentro da ROI
+    edges_masked = cv2.bitwise_and(edges, edges, mask=mask)
+
+    # 6. Calcula a densidade de bordas
+    total_pixels = cv2.countNonZero(mask)
+    if total_pixels == 0:
+        return 0.0
+
+    edge_pixels = cv2.countNonZero(edges_masked)
+    density = edge_pixels / total_pixels
+
+    return density
+
+
+# ---------------------------------------------------------------------------
 # Funções de visualização (monitoramento)
 # ---------------------------------------------------------------------------
 _COLOR_LIVRE: tuple[int, int, int] = (0, 200, 0)      # Verde
