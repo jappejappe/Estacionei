@@ -59,3 +59,25 @@ def analisar_foto():
 
     except Exception as e:
         return jsonify({"erro": f"Falha no processamento: {str(e)}"}), 500
+
+
+@dispositivos_bp.route('/dispositivos/log', methods=['POST'])
+def registrar_log():
+    """Registra logs de operação e telemetria das câmeras de borda."""
+    dados = request.get_json()
+    camera_id = dados.get('camera_id')
+    mensagem = dados.get('mensagem') # Usando o campo resultado_ia do banco temporariamente para texto de telemetria
+    
+    if not camera_id or not mensagem:
+         return jsonify({"erro": "Campos 'camera_id' e 'mensagem' são obrigatórios"}), 400
+
+    try:
+        # Reutilizando a tabela logs_processamento para telemetria básica da câmera
+        query = """
+            INSERT INTO logs_processamento (camera_id, resultado_ia) 
+            VALUES (%s, %s) RETURNING id
+        """
+        resultado = db.query(query, (camera_id, f"TELEMETRIA: {mensagem}"))
+        return jsonify({"mensagem": "Log registrado com sucesso", "log_id": resultado}), 201
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
