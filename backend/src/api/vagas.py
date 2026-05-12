@@ -13,3 +13,15 @@ def get_status_vagas():
         return jsonify(vagas), 200
     except Exception as e:
         return jsonify({"erro": str(e)}), 500
+
+@vagas_bp.route('/statusVagas/<int:id>', methods=['GET'])
+def get_vaga_detalhes(id):
+    """Retorna os detalhes e o status de uma vaga específica."""
+    try:
+        query = "SELECT * FROM vagas WHERE id = %s"
+        vagas = db.query(query, (id,))
+        if not vagas:
+            return jsonify({"erro": "Vaga não encontrada"}), 404
+        return jsonify(vagas[0]), 200
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500

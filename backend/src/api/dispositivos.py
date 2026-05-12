@@ -2,6 +2,14 @@ import os
 from datetime import datetime
 from pathlib import Path
 from flask import Blueprint, jsonify, request
+from database.database import db
+
+# Importa o detector para processar a imagem recebida
+# Ajuste de path já garantido no app.py
+try:
+    from computer_vision.detector import ParkingDetector
+except ImportError:
+    ParkingDetector = None  # Permite que a API rode sem o YOLOv8 instalado no ambiente local
 
 dispositivos_bp = Blueprint('dispositivos', __name__, url_prefix='/api')
 
@@ -11,7 +19,7 @@ UPLOAD_FOLDER.mkdir(exist_ok=True)
 
 @dispositivos_bp.route('/analisarFoto/', methods=['POST'])
 def analisar_foto():
-    """Recebe a imagem do hardware de borda."""
+    """Recebe a imagem do hardware de borda e dispara o processamento da IA."""
     if 'foto' not in request.files:
         return jsonify({"erro": "Nenhum arquivo de imagem 'foto' foi enviado"}), 400
         
@@ -24,15 +32,29 @@ def analisar_foto():
     try:
         camera_id = int(camera_id)
         
-        # Salva a imagem temporariamente
+        # Salva a imagem temporariamente para o OpenCV/YOLO processar
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"cam{camera_id}_{timestamp}.jpg"
         filepath = UPLOAD_FOLDER / filename
         foto.save(filepath)
 
+        # Se o detector não estiver disponível (ex: rodando a API num ambiente sem GPU/Yolo), retorna sucesso falso
+        if ParkingDetector is None:
+             return jsonify({
+                 "mensagem": "Imagem recebida, mas o módulo YOLO não está carregado neste servidor.",
+                 "filepath": str(filepath)
+             }), 200
+
+        # Instancia e roda o pipeline do YOLOv8
+        detector = ParkingDetector()
+        
+        # O process_frame já faz a persistência no banco (update em vagas, insert no historico e logs)
+        resultados = detector.process_frame(image_path=str(filepath), camera_id=camera_id, save_annotated=True)
+
         return jsonify({
-            "mensagem": "Imagem recebida com sucesso, aguardando integração com IA.",
-            "filepath": str(filepath)
+            "mensagem": "Processamento concluído com sucesso",
+            "vagas_processadas": len(resultados),
+            "resultados": resultados
         }), 200
 
     except Exception as e:
