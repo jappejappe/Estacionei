@@ -1,0 +1,244 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-05-29T12:00:00.000Z",
+  "__export_source": "insomnia.desktop.app:v2026.1.0",
+  "resources": [
+    {
+      "_id": "wrk_estacionei",
+      "parentId": null,
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "name": "Estacionei API",
+      "description": "Workspace para testes das rotas da API Estacionei.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1716984000000,
+      "_type": "workspace"
+    },
+    {
+      "_id": "env_base",
+      "parentId": "wrk_estacionei",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "name": "Ambiente Base",
+      "data": {
+        "base_url": "http://localhost:5000"
+      },
+      "dataPropertyOrder": {
+        "&": [
+          "base_url"
+        ]
+      },
+      "color": null,
+      "isPrivate": false,
+      "metaSortKey": 1716984000000,
+      "_type": "environment"
+    },
+    {
+      "_id": "fld_vagas",
+      "parentId": "wrk_estacionei",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "name": "Vagas",
+      "description": "Endpoints relacionados ao status e gerenciamento de vagas",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1716984000000,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_dispositivos",
+      "parentId": "wrk_estacionei",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "name": "Dispositivos / Hardware",
+      "description": "Endpoints voltados para recepção de dados das câmeras de borda",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1716983000000,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_index",
+      "parentId": "wrk_estacionei",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/",
+      "name": "Index / Health Check",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1716984000000,
+      "isPrivate": false,
+      "_type": "request"
+    },
+    {
+      "_id": "req_status_vagas",
+      "parentId": "fld_vagas",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/api/statusVagas/",
+      "name": "Listar Todas as Vagas",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1716984000000,
+      "isPrivate": false,
+      "_type": "request"
+    },
+    {
+      "_id": "req_vaga_detalhes",
+      "parentId": "fld_vagas",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/api/statusVagas/1",
+      "name": "Detalhes de uma Vaga",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1716983000000,
+      "isPrivate": false,
+      "_type": "request"
+    },
+    {
+      "_id": "req_vagas_proximas",
+      "parentId": "fld_vagas",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/api/vagas/proximas",
+      "name": "Buscar Vagas Próximas (Haversine)",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "lat",
+          "value": "-23.55052",
+          "disabled": false
+        },
+        {
+          "name": "lon",
+          "value": "-46.633308",
+          "disabled": false
+        },
+        {
+          "name": "raio",
+          "value": "2.5",
+          "disabled": false
+        }
+      ],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1716982000000,
+      "isPrivate": false,
+      "_type": "request"
+    },
+    {
+      "_id": "req_update_status_vaga",
+      "parentId": "fld_vagas",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/api/vagas/1/status",
+      "name": "Atualizar Status Manualmente",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"status\": 1\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1716981000000,
+      "isPrivate": false,
+      "_type": "request"
+    },
+    {
+      "_id": "req_historico_vaga",
+      "parentId": "fld_vagas",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/api/historico/1",
+      "name": "Histórico de Ocupação",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1716980000000,
+      "isPrivate": false,
+      "_type": "request"
+    },
+    {
+      "_id": "req_analisar_foto",
+      "parentId": "fld_dispositivos",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/api/analisarFoto/",
+      "name": "Enviar Foto para Análise (YOLO)",
+      "method": "POST",
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          {
+            "name": "camera_id",
+            "value": "12",
+            "disabled": false
+          },
+          {
+            "name": "foto",
+            "type": "file",
+            "fileName": "",
+            "disabled": false,
+            "value": ""
+          }
+        ]
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "multipart/form-data"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1716984000000,
+      "isPrivate": false,
+      "_type": "request"
+    },
+    {
+      "_id": "req_registrar_log",
+      "parentId": "fld_dispositivos",
+      "modified": 1716984000000,
+      "created": 1716984000000,
+      "url": "{{ _.base_url }}/api/dispositivos/log",
+      "name": "Registrar Telemetria / Log",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"camera_id\": 12,\n  \"mensagem\": \"Bateria em 85% e conexão estável.\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1716983000000,
+      "isPrivate": false,
+      "_type": "request"
+    }
+  ]
+}
