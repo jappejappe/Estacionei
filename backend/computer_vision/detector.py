@@ -30,10 +30,11 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from database.database import db  # noqa: E402
 from computer_vision.processor import (  # noqa: E402
-    analyze_roi_occupancy,
     bgr_to_rgb,
+    crop_roi,
     draw_detections,
     draw_rois,
+    enhance_roi_crop,
     load_image,
     resize_frame,
     save_annotated_frame,
@@ -76,18 +77,18 @@ _ANNOTATED_DIR: str = str(
 
 class ParkingDetector:
     """
-    Detector de ocupação de vagas de estacionamento usando pipeline híbrido
-    OpenCV + YOLOv8.
+    Detector de ocupação de vagas de estacionamento usando pipeline
+    OpenCV (pré-processamento) + YOLOv8 (decisão).
 
     Pipeline:
-        1. OpenCV (Canny edge detection) analisa cada ROI individualmente.
-        2. YOLOv8 faz inferência global e calcula IoA com as ROIs.
-        3. Decisão final: vaga é Ocupada se OpenCV OU YOLO indicar.
+        1. YOLO global: inferência na imagem completa (pega carros óbvios).
+        2. Para vagas não detectadas: OpenCV recorta e melhora cada ROI,
+           YOLO analisa o recorte ampliado de perto.
+        3. Somente o YOLO decide se a vaga está ocupada.
 
     Attributes:
         model: Instância do modelo YOLO carregado.
         ioa_threshold: Limiar mínimo de IoA para considerar uma vaga ocupada.
-        edge_threshold: Limiar de densidade de bordas (OpenCV) para ocupação.
         config_path: Caminho para o arquivo rois.json.
         confidence_threshold: Confiança mínima para aceitar uma detecção YOLO.
     """
@@ -97,8 +98,7 @@ class ParkingDetector:
         model_path: str = _DEFAULT_MODEL_PATH,
         config_path: str = _DEFAULT_CONFIG_PATH,
         ioa_threshold: float = 0.3,
-        confidence_threshold: float = 0.5,
-        edge_threshold: float = 0.05,
+        confidence_threshold: float = 0.25,
     ) -> None:
         """
         Inicializa o detector carregando o modelo YOLOv8.
@@ -108,8 +108,6 @@ class ParkingDetector:
             config_path: Caminho para o rois.json com coordenadas das vagas.
             ioa_threshold: Limiar de IoA (0.0–1.0) para marcar vaga como ocupada.
             confidence_threshold: Confiança mínima do YOLO (0.0–1.0).
-            edge_threshold: Limiar de densidade de bordas (0.0–1.0) para o
-                            OpenCV considerar a vaga como ocupada.
 
         Raises:
             FileNotFoundError: Se o arquivo do modelo não existir.
@@ -135,7 +133,6 @@ class ParkingDetector:
 
         self.ioa_threshold = ioa_threshold
         self.confidence_threshold = confidence_threshold
-        self.edge_threshold = edge_threshold
         self.config_path = config_path
 
     # ------------------------------------------------------------------
@@ -287,7 +284,53 @@ class ParkingDetector:
         return min(ioa, 1.0)
 
     # ------------------------------------------------------------------
-    # Avaliação de ocupação (Pipeline Híbrido: OpenCV → YOLO)
+    # Detecção por ROI (recorte individual via OpenCV + YOLO)
+    # ------------------------------------------------------------------
+    def detect_in_roi(
+        self,
+        frame_bgr: np.ndarray,
+        roi_coords: list[list[int]],
+    ) -> tuple[bool, bool]:
+        """
+        Recorta uma ROI e roda o YOLO em duas versões:
+        1. Recorte CRU (só letterbox, sem filtros)
+        2. Recorte MELHORADO (CLAHE + sharpen via OpenCV)
+
+        Retorna o resultado de cada análise para que o caller possa
+        comparar e logar.
+
+        Args:
+            frame_bgr: Frame original BGR (resolução completa).
+            roi_coords: Coordenadas da ROI na escala original do frame.
+
+        Returns:
+            Tupla (cru_detectou, melhorado_detectou).
+        """
+        # Passe CRU: confiança mais baixa (imagem limpa, pode ser sensível)
+        raw_conf = max(0.1, self.confidence_threshold * 0.5)
+        # Passe MELHORADO: confiança mais alta (filtros podem criar artefatos)
+        enh_conf = max(0.15, self.confidence_threshold * 0.9)
+
+        # --- YOLO no recorte CRU ---
+        raw_crop = crop_roi(frame_bgr, roi_coords)
+        results_raw = self.model(raw_crop, conf=raw_conf, verbose=False)
+        raw_detected = any(
+            int(box.cls[0]) in _VEHICLE_CLASSES
+            for box in results_raw[0].boxes
+        )
+
+        # --- YOLO no recorte MELHORADO (OpenCV) ---
+        enhanced_crop = enhance_roi_crop(frame_bgr, roi_coords)
+        results_enh = self.model(enhanced_crop, conf=enh_conf, verbose=False)
+        enhanced_detected = any(
+            int(box.cls[0]) in _VEHICLE_CLASSES
+            for box in results_enh[0].boxes
+        )
+
+        return raw_detected, enhanced_detected
+
+    # ------------------------------------------------------------------
+    # Avaliação de ocupação (YOLO decide, OpenCV auxilia)
     # ------------------------------------------------------------------
     def evaluate_occupancy(
         self,
@@ -296,18 +339,17 @@ class ParkingDetector:
         rois: list[dict],
     ) -> dict[int, int]:
         """
-        Pipeline híbrido de avaliação de ocupação.
+        Avalia a ocupação de cada vaga. Somente o YOLO decide.
 
-        Etapa 1 — OpenCV: Para cada ROI, analisa a densidade de bordas
-        (Canny). Muitas bordas = provável veículo.
+        Passe 1 — YOLO Global: Verifica se alguma bounding box detectada
+        na imagem inteira intercepta a ROI (via IoA).
 
-        Etapa 2 — YOLO: Verifica se alguma bounding box detectada pelo
-        YOLO intercepta a ROI acima do limiar de IoA.
-
-        Decisão Final: A vaga é Ocupada se OpenCV OU YOLO indicar.
+        Passe 2 — YOLO por ROI: Para vagas não detectadas no passe 1,
+        o OpenCV recorta e melhora a imagem de cada vaga individualmente,
+        e o YOLO analisa o recorte ampliado de perto.
 
         Args:
-            frame_bgr: Frame original BGR (resolução completa) para o OpenCV.
+            frame_bgr: Frame original BGR (resolução completa).
             detections: Lista de detecções retornada por detect_vehicles().
             rois: Lista de ROIs retornada por load_rois().
 
@@ -318,50 +360,64 @@ class ParkingDetector:
         """
         statuses: dict[int, int] = {}
 
+        # Escala para converter ROIs de 640x640 para a resolução original
+        orig_h, orig_w = frame_bgr.shape[:2]
+        scale_x = orig_w / 640
+        scale_y = orig_h / 640
+
         for roi in rois:
             vaga_id = roi["vaga_id"]
             roi_coords = roi["coords"]
+            codigo = roi.get("codigo_vaga", "?")
 
-            # --- Etapa 1: OpenCV (Canny edge detection) ---
-            # As ROIs estão na escala 640x640. Precisamos escalar para
-            # a resolução original do frame para o OpenCV analisar.
-            orig_h, orig_w = frame_bgr.shape[:2]
-            scale_x = orig_w / 640
-            scale_y = orig_h / 640
+            # --- Passe 1: YOLO Global (IoA) ---
+            yolo_global = False
+            for det in detections:
+                ioa = self.compute_ioa(det["bbox"], roi_coords)
+                if ioa >= self.ioa_threshold:
+                    yolo_global = True
+                    break
+
+            if yolo_global:
+                statuses[vaga_id] = 1
+                logger.info(
+                    "Vaga %d (%s): YOLO Global [SIM] → OCUPADA",
+                    vaga_id, codigo,
+                )
+                continue
+
+            # --- Passe 2: YOLO por ROI (cru vs melhorado) ---
             coords_original = [
                 [int(pt[0] * scale_x), int(pt[1] * scale_y)]
                 for pt in roi_coords
             ]
+            raw_det, enh_det = self.detect_in_roi(frame_bgr, coords_original)
 
-            edge_density = analyze_roi_occupancy(frame_bgr, coords_original)
-            opencv_occupied = edge_density >= self.edge_threshold
+            # Decisão: ocupada se QUALQUER análise detectar veículo.
+            # O log mostra Cru vs OpenCV para o usuário poder comparar.
+            roi_detected = raw_det or enh_det
 
-            # --- Etapa 2: YOLO (IoA) ---
-            yolo_occupied = False
-            for det in detections:
-                ioa = self.compute_ioa(det["bbox"], roi_coords)
-                if ioa >= self.ioa_threshold:
-                    yolo_occupied = True
-                    break
-
-            # --- Decisão Final: OR ---
-            status = 1 if (opencv_occupied or yolo_occupied) else 0
-            statuses[vaga_id] = status
-
-            # Log detalhado por vaga
-            cv_tag = "SIM" if opencv_occupied else "NAO"
-            yolo_tag = "SIM" if yolo_occupied else "NAO"
-            status_tag = "OCUPADA" if status == 1 else "LIVRE"
-            logger.info(
-                "Vaga %d (%s): OpenCV=%.3f [%s] | YOLO=[%s] → %s",
-                vaga_id, roi.get("codigo_vaga", "?"),
-                edge_density, cv_tag, yolo_tag, status_tag,
-            )
+            if roi_detected:
+                statuses[vaga_id] = 1
+                logger.info(
+                    "Vaga %d (%s): YOLO Global [NAO] | ROI Cru [%s] | ROI OpenCV [%s] → OCUPADA",
+                    vaga_id, codigo,
+                    "SIM" if raw_det else "NAO",
+                    "SIM" if enh_det else "NAO",
+                )
+            else:
+                statuses[vaga_id] = 0
+                logger.info(
+                    "Vaga %d (%s): YOLO Global [NAO] | ROI Cru [%s] | ROI OpenCV [%s] → LIVRE",
+                    vaga_id, codigo,
+                    "SIM" if raw_det else "NAO",
+                    "SIM" if enh_det else "NAO",
+                )
 
         livres = sum(1 for s in statuses.values() if s == 0)
         ocupadas = sum(1 for s in statuses.values() if s == 1)
         logger.info(
-            "Avaliação híbrida: %d livres, %d ocupadas (de %d vagas)",
+            "Avaliação: %d livres, %d ocupadas (de %d vagas)",
             livres, ocupadas, len(rois),
         )
 
@@ -580,12 +636,6 @@ if __name__ == "__main__":
         help="Confiança mínima do YOLO. Padrão: 0.25",
     )
     parser.add_argument(
-        "--edge-threshold",
-        type=float,
-        default=0.05,
-        help="Limiar de densidade de bordas (OpenCV). Padrão: 0.05",
-    )
-    parser.add_argument(
         "--no-annotate",
         action="store_true",
         help="Desativa a geração de frame anotado.",
@@ -598,7 +648,6 @@ if __name__ == "__main__":
         config_path=args.config,
         ioa_threshold=args.ioa_threshold,
         confidence_threshold=args.confidence,
-        edge_threshold=args.edge_threshold,
     )
 
     resultado = detector.process_frame(

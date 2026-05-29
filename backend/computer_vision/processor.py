@@ -125,70 +125,122 @@ def preprocess(
 
 
 # ---------------------------------------------------------------------------
-# Análise de ocupação via OpenCV (pré-filtro antes do YOLO)
+# Pré-processamento de ROI via OpenCV (preparação para o YOLO)
 # ---------------------------------------------------------------------------
-def analyze_roi_occupancy(
+def crop_roi(
     frame_bgr: np.ndarray,
     roi_coords: list[list[int]],
-    canny_low: int = 50,
-    canny_high: int = 150,
-    blur_kernel: int = 5,
-) -> float:
+    output_size: int = 640,
+) -> np.ndarray:
     """
-    Analisa a ocupação de uma ROI usando detecção de bordas (Canny).
+    Recorta uma ROI do frame original e redimensiona com letterbox (sem filtros).
 
-    Vagas ocupadas possuem alta densidade de bordas (contorno do carro,
-    rodas, espelhos, placa). Vagas livres (asfalto liso) possuem poucas
-    bordas.
-
-    Etapas:
-        1. Cria uma máscara poligonal da ROI.
-        2. Recorta a região de interesse do frame.
-        3. Converte para escala de cinza e aplica Gaussian Blur.
-        4. Aplica o detector de bordas Canny.
-        5. Calcula a densidade de bordas (pixels de borda / total de pixels da ROI).
+    Usado para o YOLO analisar a imagem crua da vaga, ampliada de perto.
 
     Args:
-        frame_bgr: Frame original em BGR (resolução completa).
+        frame_bgr: Frame original em BGR.
         roi_coords: Lista de 4 pontos [[x,y], ...] do polígono da vaga.
-        canny_low: Limiar inferior do detector Canny.
-        canny_high: Limiar superior do detector Canny.
-        blur_kernel: Tamanho do kernel do Gaussian Blur (deve ser ímpar).
+        output_size: Tamanho quadrado de saída (padrão: 640).
 
     Returns:
-        Densidade de bordas entre 0.0 e 1.0.
-        Valores típicos:
-        - < 0.03: Vaga provavelmente livre (asfalto liso)
-        - > 0.05: Vaga provavelmente ocupada (contornos de veículo)
+        Imagem BGR recortada e redimensionada (output_size x output_size).
     """
     poly = np.array(roi_coords, dtype=np.int32)
 
-    # 1. Cria máscara da ROI
-    mask = np.zeros(frame_bgr.shape[:2], dtype=np.uint8)
-    cv2.fillPoly(mask, [poly], 255)
+    x, y, w, h = cv2.boundingRect(poly)
 
-    # 2. Recorta a região usando a máscara
-    roi_region = cv2.bitwise_and(frame_bgr, frame_bgr, mask=mask)
+    img_h, img_w = frame_bgr.shape[:2]
+    x = max(0, x)
+    y = max(0, y)
+    w = min(w, img_w - x)
+    h = min(h, img_h - y)
 
-    # 3. Converte para cinza e aplica blur para reduzir ruído
-    gray = cv2.cvtColor(roi_region, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
+    crop = frame_bgr[y:y+h, x:x+w].copy()
 
-    # 4. Detecção de bordas com Canny
-    edges = cv2.Canny(blurred, canny_low, canny_high)
+    if crop.size == 0:
+        return np.zeros((output_size, output_size, 3), dtype=np.uint8)
 
-    # 5. Aplica a máscara para contar apenas pixels dentro da ROI
-    edges_masked = cv2.bitwise_and(edges, edges, mask=mask)
+    # Redimensiona mantendo proporção (letterbox)
+    scale = output_size / max(h, w)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    resized = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-    # 6. Calcula a densidade de bordas
-    total_pixels = cv2.countNonZero(mask)
-    if total_pixels == 0:
-        return 0.0
+    # Padding para ficar quadrado (cinza 114 = padrão YOLO)
+    canvas = np.full((output_size, output_size, 3), 114, dtype=np.uint8)
+    pad_x = (output_size - new_w) // 2
+    pad_y = (output_size - new_h) // 2
+    canvas[pad_y:pad_y+new_h, pad_x:pad_x+new_w] = resized
 
-    edge_pixels = cv2.countNonZero(edges_masked)
-    density = edge_pixels / total_pixels
+    return canvas
 
-    return density
+
+def enhance_roi_crop(
+    frame_bgr: np.ndarray,
+    roi_coords: list[list[int]],
+    output_size: int = 640,
+) -> np.ndarray:
+    """
+    Recorta uma ROI, aplica melhorias de imagem via OpenCV e redimensiona.
+
+    Diferente de crop_roi(), esta versão aplica:
+    - CLAHE (equalização adaptativa de contraste)
+    - Sharpening (filtro de nitidez)
+
+    Usado como segundo passe para ajudar o YOLO a enxergar veículos em
+    condições difíceis (baixo contraste, vista aérea, sombras).
+
+    Args:
+        frame_bgr: Frame original em BGR.
+        roi_coords: Lista de 4 pontos [[x,y], ...] do polígono da vaga.
+        output_size: Tamanho quadrado de saída (padrão: 640).
+
+    Returns:
+        Imagem BGR recortada, melhorada e redimensionada (output_size x output_size).
+    """
+    poly = np.array(roi_coords, dtype=np.int32)
+
+    x, y, w, h = cv2.boundingRect(poly)
+
+    img_h, img_w = frame_bgr.shape[:2]
+    x = max(0, x)
+    y = max(0, y)
+    w = min(w, img_w - x)
+    h = min(h, img_h - y)
+
+    crop = frame_bgr[y:y+h, x:x+w].copy()
+
+    if crop.size == 0:
+        return np.zeros((output_size, output_size, 3), dtype=np.uint8)
+
+    # CLAHE — Equalização adaptativa de contraste
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+    l_enhanced = clahe.apply(l_channel)
+    lab_enhanced = cv2.merge([l_enhanced, a_channel, b_channel])
+    crop = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
+
+    # Sharpening — Aumenta a nitidez para realçar contornos do veículo
+    sharpen_kernel = np.array([
+        [0, -1, 0],
+        [-1, 5, -1],
+        [0, -1, 0],
+    ], dtype=np.float32)
+    crop = cv2.filter2D(crop, -1, sharpen_kernel)
+
+    # Redimensiona mantendo proporção (letterbox)
+    scale = output_size / max(h, w)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    resized = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    canvas = np.full((output_size, output_size, 3), 114, dtype=np.uint8)
+    pad_x = (output_size - new_w) // 2
+    pad_y = (output_size - new_h) // 2
+    canvas[pad_y:pad_y+new_h, pad_x:pad_x+new_w] = resized
+
+    return canvas
 
 
 # ---------------------------------------------------------------------------
