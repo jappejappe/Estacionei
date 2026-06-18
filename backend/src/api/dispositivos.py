@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from flask import Blueprint, jsonify, request
+from api import vagas
 from database.database import db
 
 # Importa o detector para processar a imagem recebida
@@ -81,3 +82,49 @@ def registrar_log():
         return jsonify({"mensagem": "Log registrado com sucesso", "log_id": resultado}), 201
     except Exception as e:
         return jsonify({"erro": str(e)}), 500
+    
+@dispositivos_bp.route('/dispositivos/vagas', methods=['POST'])
+def atualizar_vagas_lote():
+    dados = request.get_json()
+    if not dados:
+        return jsonify({"erro": "Requisição vazia"}), 400
+        
+    camera_id = dados.get('camera_id')
+    vagas = dados.get('vagas')
+    total_detecoes = dados.get('total_detecoes', 0)
+    
+    if not camera_id or not vagas:
+        return jsonify({"erro": "Campos 'camera_id' e 'vagas' são obrigatórios"}), 400
+
+    try:
+        from datetime import datetime
+        agora = datetime.now()
+        
+        for vaga in vagas:
+            vaga_id = vaga.get('vaga_id')
+            status = vaga.get('status')
+            
+            if vaga_id is None or status is None:
+                continue
+                
+            linhas_afetadas = db.query(
+                "UPDATE vagas SET status = %s, ultima_atualizacao = %s WHERE id = %s",
+                (status, agora, vaga_id)
+            )
+            
+            if linhas_afetadas == 0:
+                codigo_vaga = f"VAGA-{vaga_id}"
+                db.query(
+                    "INSERT INTO vagas (id, codigo_vaga, latitude, longitude, status, ultima_atualizacao) VALUES (%s, %s, 0.0, 0.0, %s, %s)",
+                    (vaga_id, codigo_vaga, status, agora)
+                )
+            
+            db.query(
+                "INSERT INTO registros_historicos (vaga_id, status, data_hora) VALUES (%s, %s, %s)",
+                (vaga_id, status, agora)
+            )
+        
+        return jsonify({"mensagem": "Status do lote atualizado com sucesso"}), 200
+        
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao atualizar lote: {str(e)}"}), 500
