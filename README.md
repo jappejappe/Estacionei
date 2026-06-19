@@ -66,6 +66,10 @@ cd backend
 python -m computer_vision.detector imagem_teste.jpg --camera-id 1
 ```
 
+```sh
+python -m computer_vision.send_detection imagem_teste.jpg --camera-id 1 --api-url http://localhost:1421
+```
+
 # IMPORTANTE
 
 Antes de usar em produção:
