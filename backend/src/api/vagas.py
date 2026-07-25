@@ -40,19 +40,20 @@ def get_vagas_proximas():
         return jsonify({"erro": "Parâmetros 'lat' e 'lon' são obrigatórios"}), 400
 
     try:
-        # Implementação simples utilizando a fórmula de Haversine diretamente no SQL
+        # Usa subquery para calcular distância via Haversine e filtrar pelo raio
         query = """
-            SELECT id, codigo_vaga, latitude, longitude, status,
-            (6371 * acos(cos(radians(%s)) * cos(radians(latitude)) * cos(radians(longitude) - radians(%s)) + 
-            sin(radians(%s)) * sin(radians(latitude)))) AS distancia_km
-            FROM vagas
-            WHERE status = 0
-            HAVING (6371 * acos(cos(radians(%s)) * cos(radians(latitude)) * cos(radians(longitude) - radians(%s)) + 
-            sin(radians(%s)) * sin(radians(latitude)))) <= %s
+            SELECT * FROM (
+                SELECT id, codigo_vaga, latitude, longitude, status, ultima_atualizacao,
+                (6371 * acos(
+                    LEAST(1.0, cos(radians(%s)) * cos(radians(latitude)) * cos(radians(longitude) - radians(%s)) + 
+                    sin(radians(%s)) * sin(radians(latitude)))
+                )) AS distancia_km
+                FROM vagas
+            ) AS sub
+            WHERE distancia_km <= %s
             ORDER BY distancia_km
         """
-        # Passando os parâmetros repetidos para a query
-        args = (lat, lon, lat, lat, lon, lat, raio_km)
+        args = (lat, lon, lat, raio_km)
         vagas = db.query(query, args)
         
         return jsonify(vagas), 200
