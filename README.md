@@ -77,3 +77,6 @@ Antes de usar em produção:
 Coloque o modelo yolov8n.pt em computer_vision/models/
 Configure as coordenadas reais das vagas em computer_vision/config/rois.json
 Certifique-se de que o banco de dados está rodando e as tabelas existem
+
+
+python captura_celular.py --camera-id 1 --intervalo 30

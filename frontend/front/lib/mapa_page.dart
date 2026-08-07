@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
@@ -17,7 +16,11 @@ import 'package:latlong2/latlong.dart' hide Path;
 /// No emulador Android, `localhost` aponta para o host via 10.0.2.2.
 String get apiBaseUrl {
   if (kIsWeb) return 'http://localhost:1421';
-  if (Platform.isAndroid) return 'http://10.0.2.2:1421';
+  // Em plataformas nativas (não Web), verifica se é Android.
+  // Usa defaultTargetPlatform para evitar importar dart:io no Web.
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return 'http://10.0.2.2:1421';
+  }
   return 'http://localhost:1421';
 }
 
@@ -1217,10 +1220,49 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
       );
     }
 
-    if (_vagas.isEmpty) return const SizedBox.shrink();
+    if (_vagas.isEmpty && !_carregando && _erro == null) {
+      return Positioned(
+        top: topoSeguro + 72,
+        left: 16,
+        right: 16,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E2C).withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.local_parking_rounded, color: Colors.white54, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Nenhuma vaga cadastrada ainda',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     // Não mostra este indicador quando o painel de filtro está ativo
-    if (_filtroProximidadeAtivo) return const SizedBox.shrink();
+    if (_filtroProximidadeAtivo) {
+      return Positioned(
+        top: topoSeguro + 72,
+        left: 16,
+        right: 16,
+        child: const SizedBox.shrink(),
+      );
+    }
 
     final int livres = _vagas.where((v) => v.status == 0).length;
     final int ocupadas = _vagas.length - livres;

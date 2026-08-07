@@ -115,8 +115,17 @@ class ParkingDetector:
         """
         # Importação tardia para evitar erro se ultralytics não estiver instalado
         # em contextos de teste do processor.py
-        from ultralytics import YOLO
+        import torch
+        
+        # Workaround para PyTorch 2.4+ (onde weights_only=True virou padrão)
+        # Modelos mais antigos do YOLOv8 falham ao carregar sem weights_only=False
+        _original_load = torch.load
+        def _patched_load(*args, **kwargs):
+            kwargs['weights_only'] = False
+            return _original_load(*args, **kwargs)
+        torch.load = _patched_load
 
+        from ultralytics import YOLO
         model_file = Path(model_path)
         if not model_file.exists():
             raise FileNotFoundError(
@@ -130,6 +139,9 @@ class ParkingDetector:
             logger.info("Modelo YOLOv8 carregado com sucesso.")
         except Exception as e:
             raise RuntimeError(f"Falha ao carregar modelo YOLOv8: {e}") from e
+        finally:
+            # Restaura a função original após tentar carregar o modelo
+            torch.load = _original_load
 
         self.ioa_threshold = ioa_threshold
         self.confidence_threshold = confidence_threshold

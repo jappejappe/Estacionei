@@ -3,17 +3,17 @@ Flask==3.0.2
 Werkzeug==3.0.1
 
 # Banco de Dados e Variáveis de Ambiente
-SQLAlchemy==2.0.27
-psycopg[binary]==3.1.18
+SQLAlchemy>=2.0.51
+psycopg[binary]>=3.1.18
 python-dotenv==1.0.1
 
 # Visão Computacional, IA e Processamento
 ultralytics==8.1.24
-opencv-python==4.9.0.80
-numpy==1.26.4
+opencv-python>=5.0.0.93
+numpy>=2.0
 
 # Interface Gráfica e Imagens (Módulo de Hardware/Edge)
-Pillow==10.2.0
+Pillow
 
 # Comunicação Edge -> Servidor
 requests==2.31.0
