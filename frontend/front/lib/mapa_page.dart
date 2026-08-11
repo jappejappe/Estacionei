@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart' hide Path;
+import 'package:geolocator/geolocator.dart';
 
 // ---------------------------------------------------------------------------
 // Configuração da API
@@ -174,6 +175,13 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
 
   /// Se o painel de resultados deve ser exibido.
   bool _mostrandoResultados = false;
+
+  // -----------------------------------------------------------------------
+  // Estado da Rota
+  // -----------------------------------------------------------------------
+  LatLng? _localizacaoAtual;
+  List<LatLng> _pontosRota = [];
+  bool _buscandoRota = false;
 
   // -----------------------------------------------------------------------
   // Ciclo de vida
@@ -446,6 +454,96 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
 
   double _toRad(double deg) => deg * math.pi / 180;
 
+  // -----------------------------------------------------------------------
+  // Localização e Rotas
+  // -----------------------------------------------------------------------
+
+  Future<void> _obterLocalizacaoAtual() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Serviço de localização desativado.')),
+        );
+      }
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Permissão de localização negada.')),
+          );
+        }
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permissões de localização negadas permanentemente.')),
+        );
+      }
+      return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition();
+      setState(() {
+        _localizacaoAtual = LatLng(position.latitude, position.longitude);
+      });
+    } catch (e) {
+      // Ignorar erro
+    }
+  }
+
+  Future<void> _buscarRota(LatLng destino) async {
+    await _obterLocalizacaoAtual();
+    if (_localizacaoAtual == null) return;
+
+    setState(() {
+      _buscandoRota = true;
+      _pontosRota = [];
+    });
+
+    try {
+      final origemLat = _localizacaoAtual!.latitude;
+      final origemLng = _localizacaoAtual!.longitude;
+      final destinoLat = destino.latitude;
+      final destinoLng = destino.longitude;
+
+      final url = Uri.parse(
+          'http://router.project-osrm.org/route/v1/driving/$origemLng,$origemLat;$destinoLng,$destinoLat?geometries=geojson');
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['routes'] != null && data['routes'].isNotEmpty) {
+          final coordinates = data['routes'][0]['geometry']['coordinates'] as List;
+          final List<LatLng> pontos = coordinates
+              .map((coord) => LatLng(coord[1] as double, coord[0] as double))
+              .toList();
+
+          setState(() {
+            _pontosRota = pontos;
+            _buscandoRota = false;
+          });
+        }
+      } else {
+         setState(() => _buscandoRota = false);
+      }
+    } catch (e) {
+       setState(() => _buscandoRota = false);
+    }
+  }
+
   /// Exibe um BottomSheet com detalhes da vaga selecionada.
   void _mostrarDetalhesVaga(VagaEstacionamento vaga) {
     final bool livre = vaga.status == 0;
@@ -613,6 +711,26 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
                 ),
               ],
               const SizedBox(height: 20),
+              if (vaga.temCoordenadaValida)
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      _buscarRota(LatLng(vaga.latitude, vaga.longitude));
+                    },
+                    icon: const Icon(Icons.directions_rounded),
+                    label: const Text('Traçar Rota', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF448AFF),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -771,6 +889,34 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
                   height: 48,
                   alignment: Alignment.topCenter,
                   child: const _MarcadorDestino(),
+                ),
+              ],
+            ),
+          if (_localizacaoAtual != null)
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: _localizacaoAtual!,
+                  width: 24,
+                  height: 24,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          if (_pontosRota.isNotEmpty)
+            PolylineLayer(
+              polylines: [
+                Polyline(
+                  points: _pontosRota,
+                  color: Colors.blueAccent,
+                  strokeWidth: 4.0,
                 ),
               ],
             ),
