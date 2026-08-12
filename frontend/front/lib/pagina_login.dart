@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'pagina_cadastro.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -15,16 +17,32 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscureText = true;
 
   @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('isLoggedIn') == true) {
+      if (mounted) Navigator.pushReplacementNamed(context, '/mapa');
+    }
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _submitLogin() {
+  void _submitLogin() async {
     if (_formKey.currentState!.validate()) {
-      // Autenticação mock: após validar o formulário, abre a tela do mapa.
-      Navigator.pushReplacementNamed(context, '/mapa');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/mapa');
+      }
     }
   }
 

@@ -16,13 +16,8 @@ import 'package:geolocator/geolocator.dart';
 /// Retorna a base URL correta dependendo da plataforma.
 /// No emulador Android, `localhost` aponta para o host via 10.0.2.2.
 String get apiBaseUrl {
-  if (kIsWeb) return 'http://localhost:1421';
-  // Em plataformas nativas (não Web), verifica se é Android.
-  // Usa defaultTargetPlatform para evitar importar dart:io no Web.
-  if (defaultTargetPlatform == TargetPlatform.android) {
-    return 'http://10.0.2.2:1421';
-  }
-  return 'http://localhost:1421';
+  // Configurado para o IP local da sua máquina para funcionar em dispositivos físicos e emuladores
+  return 'http://192.168.1.200:1421';
 }
 
 // ---------------------------------------------------------------------------
@@ -466,7 +461,13 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
     if (!serviceEnabled) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Serviço de localização desativado.')),
+          SnackBar(
+            content: const Text('GPS está desativado no dispositivo.'),
+            action: SnackBarAction(
+              label: 'Ativar GPS',
+              onPressed: () => Geolocator.openLocationSettings(),
+            ),
+          ),
         );
       }
       return;
