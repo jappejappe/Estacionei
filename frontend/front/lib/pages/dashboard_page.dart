@@ -1,16 +1,92 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:front/services/dashboard_mock.dart';
+import '../mapa_page.dart' show apiBaseUrl;
 
 /// Painel de vagas com indicadores, gráficos e alertas inteligentes (dados mock).
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
   static const double _cardRadius = 12;
   static const EdgeInsets _pagePadding = EdgeInsets.all(16);
 
+  int _vagasDisponiveis = 0;
+  int _vagasOcupadas = 0;
+  double _taxaOcupacao = 0.0;
+  bool _isLoading = true;
+  Timer? _timerAtualizacao;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDados();
+    _timerAtualizacao = Timer.periodic(const Duration(seconds: 10), (_) => _fetchDados());
+  }
+
+  @override
+  void dispose() {
+    _timerAtualizacao?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchDados() async {
+    try {
+      final url = Uri.parse('$apiBaseUrl/api/statusVagas/');
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = json.decode(response.body);
+        int ocupadas = 0;
+        int livres = 0;
+        
+        for (var v in jsonList) {
+          if (v['status'] == 1) {
+            ocupadas++;
+          } else {
+            livres++;
+          }
+        }
+        
+        int total = ocupadas + livres;
+        
+        setState(() {
+          _vagasOcupadas = ocupadas;
+          _vagasDisponiveis = livres;
+          _taxaOcupacao = total > 0 ? (ocupadas / total) * 100 : 0.0;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      // Falha na requisição, mantemos os dados anteriores ou mostramos erro.
+      if (_isLoading) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Painel de Vagas'),
+          backgroundColor: const Color(0xFF000000),
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Painel de Vagas'),
@@ -44,7 +120,7 @@ class DashboardPage extends StatelessWidget {
           child: _buildResumoCard(
             icon: Icons.check_circle,
             cor: Colors.green,
-            valor: '$vagasDisponiveis',
+            valor: '$_vagasDisponiveis',
             rotulo: 'Disponíveis',
           ),
         ),
@@ -53,7 +129,7 @@ class DashboardPage extends StatelessWidget {
           child: _buildResumoCard(
             icon: Icons.cancel,
             cor: Colors.red,
-            valor: '$vagasOcupadas',
+            valor: '$_vagasOcupadas',
             rotulo: 'Ocupadas',
           ),
         ),
@@ -62,7 +138,7 @@ class DashboardPage extends StatelessWidget {
           child: _buildResumoCard(
             icon: Icons.pie_chart,
             cor: Colors.orange,
-            valor: '${taxaOcupacao.toStringAsFixed(1)}%',
+            valor: '${_taxaOcupacao.toStringAsFixed(1)}%',
             rotulo: 'Ocupação',
           ),
         ),
@@ -135,7 +211,7 @@ class DashboardPage extends StatelessWidget {
                   centerSpaceRadius: 40,
                   sections: [
                     PieChartSectionData(
-                      value: vagasDisponiveis.toDouble(),
+                      value: _vagasDisponiveis.toDouble(),
                       color: Colors.green,
                       title: 'Livres',
                       radius: 50,
@@ -146,7 +222,7 @@ class DashboardPage extends StatelessWidget {
                       ),
                     ),
                     PieChartSectionData(
-                      value: vagasOcupadas.toDouble(),
+                      value: _vagasOcupadas.toDouble(),
                       color: Colors.red,
                       title: 'Ocupadas',
                       radius: 50,
@@ -161,9 +237,9 @@ class DashboardPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            _buildLegendaItem(Colors.green, 'Livres ($vagasDisponiveis)'),
+            _buildLegendaItem(Colors.green, 'Livres ($_vagasDisponiveis)'),
             const SizedBox(height: 6),
-            _buildLegendaItem(Colors.red, 'Ocupadas ($vagasOcupadas)'),
+            _buildLegendaItem(Colors.red, 'Ocupadas ($_vagasOcupadas)'),
           ],
         ),
       ),
@@ -304,14 +380,14 @@ class DashboardPage extends StatelessWidget {
     late IconData icone;
     late String mensagem;
 
-    if (taxaOcupacao >= 85) {
+    if (_taxaOcupacao >= 85) {
       fundo = Colors.amber.shade100;
       borda = Colors.amber.shade700;
       corIcone = Colors.amber.shade800;
       icone = Icons.warning_amber_rounded;
       mensagem =
           'O centro está muito movimentado agora. Considere planejar seu destino com antecedência.';
-    } else if (taxaOcupacao < 50) {
+    } else if (_taxaOcupacao < 50) {
       fundo = Colors.green.shade100;
       borda = Colors.green.shade700;
       corIcone = Colors.green.shade700;

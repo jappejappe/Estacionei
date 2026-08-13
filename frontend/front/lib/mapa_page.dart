@@ -561,13 +561,20 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (ctx) {
         return Container(
           decoration: const BoxDecoration(
             color: Color(0xFF1E1E2C),
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 20,
+            bottom: MediaQuery.of(ctx).padding.bottom > 0 ? MediaQuery.of(ctx).padding.bottom + 20 : 20,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -712,7 +719,7 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
                 ),
               ],
               const SizedBox(height: 20),
-              if (vaga.temCoordenadaValida)
+              if (vaga.temCoordenadaValida && livre)
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -926,7 +933,6 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
     );
   }
 
-  /// Gera a lista de Markers para cada vaga.
   List<Marker> _buildMarcadoresVagas() {
     final vagas = _vagasExibidas;
     return List.generate(vagas.length, (i) {
@@ -936,6 +942,7 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
           : _posicaoFallback(i);
 
       final bool livre = vaga.status == 0;
+      final double tamanho = livre ? 42.0 : 21.0;
       final Color corFundo = livre
           ? const Color(0xFF00C853) // verde vibrante
           : const Color(0xFFFF1744); // vermelho vibrante
@@ -945,8 +952,8 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
 
       return Marker(
         point: posicao,
-        width: 42,
-        height: 42,
+        width: tamanho,
+        height: tamanho,
         child: GestureDetector(
           onTap: () => _mostrarDetalhesVaga(vaga),
           child: AnimatedContainer(
@@ -954,8 +961,8 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
             curve: Curves.easeInOut,
             decoration: BoxDecoration(
               color: corFundo.withValues(alpha: 0.85),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: corBorda, width: 2),
+              borderRadius: BorderRadius.circular(livre ? 8 : 4),
+              border: Border.all(color: corBorda, width: livre ? 2 : 1),
               boxShadow: [
                 BoxShadow(
                   color: corFundo.withValues(alpha: 0.4),
@@ -967,9 +974,9 @@ class _MapaPageState extends State<MapaPage> with TickerProviderStateMixin {
             alignment: Alignment.center,
             child: Text(
               vaga.codigoVaga,
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.white,
-                fontSize: 11,
+                fontSize: livre ? 11 : 6,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.3,
               ),
