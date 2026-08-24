@@ -1,0 +1,12 @@
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+frontend
+backend/uploads
+backend/computer_vision/output
+backend/computer_vision/models
+*.jpeg
+*.jpg

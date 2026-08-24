@@ -3,6 +3,18 @@ Sistema inteligente para acompanhar em tempo quase real o estado das vagas de es
 
 # Como Usar
 
+## Docker (API Flask + PostgreSQL)
+
+Com Docker instalado e em execucao, suba a API e o banco com um unico comando na raiz do projeto:
+
+```sh
+docker compose up --build
+```
+
+A API ficara disponivel em `http://localhost:1421`. Os dados do PostgreSQL ficam persistidos no volume `postgres_data`, e o schema e criado automaticamente na primeira inicializacao.
+
+Para executar em segundo plano, acrescente `-d`. Para encerrar os containers, use `docker compose down`.
+
 ## Ambiente virtual
 > Criar e ativar venv
 
@@ -77,6 +89,4 @@ Antes de usar em produção:
 Coloque o modelo yolov8n.pt em computer_vision/models/
 Configure as coordenadas reais das vagas em computer_vision/config/rois.json
 Certifique-se de que o banco de dados está rodando e as tabelas existem
-
-
 python captura_celular.py --camera-id 1 --intervalo 30
